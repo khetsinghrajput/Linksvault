@@ -49,7 +49,7 @@ export async function signup(_state: unknown, formData: FormData) {
   }
 
   const supabase = await createClient()
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
     options: {
@@ -58,7 +58,16 @@ export async function signup(_state: unknown, formData: FormData) {
   })
 
   if (error) {
-    return { error: error.message }
+    const msg = error.message.toLowerCase().includes('rate limit')
+      ? 'Too many signup attempts for this email. Please wait an hour before trying again, or use a different email address.'
+      : error.message
+    return { error: msg }
+  }
+
+  // When email confirmation is disabled in Supabase, signUp returns a live session immediately
+  if (data.session) {
+    revalidatePath('/', 'layout')
+    redirect('/app/all')
   }
 
   return { success: true as const, email: parsed.data.email }
