@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, ExternalLink, Star, Archive, Trash2, Globe, Plus, Pencil } from 'lucide-react'
+import { X, ExternalLink, Star, Archive, Trash2, Globe, Plus, Pencil, Copy, Share2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -34,13 +34,57 @@ export function BookmarkDetailDrawer({ bookmark, onClose }: BookmarkDetailDrawer
   const [newHighlight, setNewHighlight] = useState('')
   const [highlightColor, setHighlightColor] = useState<typeof HIGHLIGHT_COLORS[number]>('yellow')
   const [savingNote, setSavingNote] = useState(false)
+  const [activeTab, setActiveTab] = useState<'details' | 'reader'>('details')
+  const [readerText, setReaderText] = useState<string | null>(null)
+  const [readerLoading, setReaderLoading] = useState(false)
+  const [readerError, setReaderError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!bookmark) return
     setNote(bookmark.note ?? '')
     setEditingNote(false)
+    setActiveTab('details')
+    setReaderText(null)
+    setReaderError(null)
     getHighlights(bookmark.id).then(r => { if (r.data) setHighlights(r.data) })
   }, [bookmark?.id])
+
+  async function loadReader() {
+    if (!bookmark) return
+    setReaderLoading(true)
+    setReaderError(null)
+    try {
+      const res = await fetch(`/api/reader?url=${encodeURIComponent(bookmark.url)}`)
+      const data = await res.json()
+      if (data.error) setReaderError(data.error)
+      else setReaderText(data.text)
+    } catch {
+      setReaderError('Failed to fetch article')
+    } finally {
+      setReaderLoading(false)
+    }
+  }
+
+  function handleTabChange(tab: 'details' | 'reader') {
+    setActiveTab(tab)
+    if (tab === 'reader' && !readerText && !readerLoading) loadReader()
+  }
+
+  async function copyUrl() {
+    if (!bookmark) return
+    await navigator.clipboard.writeText(bookmark.url)
+    toast.success('URL copied')
+  }
+
+  async function shareUrl() {
+    if (!bookmark) return
+    if (navigator.share) {
+      await navigator.share({ title: bookmark.title, url: bookmark.url })
+    } else {
+      await navigator.clipboard.writeText(bookmark.url)
+      toast.success('URL copied (share not supported on this device)')
+    }
+  }
 
   if (!bookmark) return null
 
@@ -85,13 +129,55 @@ export function BookmarkDetailDrawer({ bookmark, onClose }: BookmarkDetailDrawer
   return (
     <div className="flex h-full w-96 shrink-0 flex-col border-l bg-background">
       <div className="flex h-14 items-center justify-between border-b px-4">
-        <span className="text-sm font-medium">Details</span>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-1">
+          {(['details', 'reader'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => handleTabChange(tab)}
+              className={`rounded-md px-2.5 py-1 text-sm capitalize transition-colors ${activeTab === tab ? 'bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/50'}`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={copyUrl} title="Copy URL">
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={shareUrl} title="Share">
+            <Share2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      {activeTab === 'reader' && (
+        <ScrollArea className="flex-1">
+          <div className="p-4">
+            {readerLoading && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Loading article…</span>
+              </div>
+            )}
+            {readerError && (
+              <div className="space-y-2">
+                <p className="text-sm text-destructive">{readerError}</p>
+                <Button size="sm" variant="outline" onClick={loadReader}>Retry</Button>
+              </div>
+            )}
+            {readerText && (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{readerText}</p>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      )}
+
+      {activeTab === 'details' && <ScrollArea className="flex-1">
         <div className="space-y-4 p-4">
           {/* Header */}
           <div className="space-y-2">
@@ -237,7 +323,7 @@ export function BookmarkDetailDrawer({ bookmark, onClose }: BookmarkDetailDrawer
             {bookmark.site_name && <p>From {bookmark.site_name}</p>}
           </div>
         </div>
-      </ScrollArea>
+      </ScrollArea>}
 
       <div className="border-t p-3">
         <Button variant="outline" className="w-full gap-2 text-sm" asChild>

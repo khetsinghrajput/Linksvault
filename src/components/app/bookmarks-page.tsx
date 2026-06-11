@@ -6,11 +6,15 @@ import { Toolbar } from '@/components/app/toolbar'
 import { BookmarkViews } from '@/components/app/bookmark-views'
 import { BookmarkDetailDrawer } from '@/components/app/bookmark-detail-drawer'
 import { AddBookmarkDialog } from '@/components/app/add-bookmark-dialog'
-import { getBookmarks, bulkAction, uploadFileBookmark } from '@/app/actions/bookmarks'
+import { FilterPanel } from '@/components/app/filter-panel'
+import { KeyboardShortcutsDialog } from '@/components/app/keyboard-shortcuts-dialog'
+import { getBookmarks, bulkAction, uploadFileBookmark, bulkMove } from '@/app/actions/bookmarks'
 import { getCollections } from '@/app/actions/collections'
 import { Button } from '@/components/ui/button'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
-import type { BookmarkWithTags, CollectionWithChildren, SortMode, ViewMode } from '@/types'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import type { BookmarkWithTags, CollectionWithChildren, SortMode, ViewMode, FilterState } from '@/types'
+import { EMPTY_FILTER, hasActiveFilters } from '@/types'
 
 interface BookmarksPageProps {
   title: string
@@ -29,18 +33,27 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
   const [openBookmark, setOpenBookmark] = useState<BookmarkWithTags | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const [bResult, cResult] = await Promise.all([
-      getBookmarks({ filter, collectionId, search, sort }),
+      getBookmarks({
+        filter, collectionId, search, sort,
+        types: filters.types.length ? filters.types : undefined,
+        domain: filters.domain || undefined,
+        dateRange: filters.dateRange || undefined,
+      }),
       getCollections(),
     ])
     if (bResult.data) setBookmarks(bResult.data)
     if (cResult.data) setCollections(cResult.data)
     setLoading(false)
-  }, [filter, collectionId, search, sort])
+  }, [filter, collectionId, search, sort, filters])
 
   useEffect(() => { load() }, [load])
 
@@ -49,6 +62,24 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
     window.addEventListener('bookmark-updated', handler)
     return () => window.removeEventListener('bookmark-updated', handler)
   }, [load])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
+      if (e.key === '?' && !typing) { setShortcutsOpen(v => !v); return }
+      if (e.key === 'Escape') { setSelected(new Set()); setOpenBookmark(null); return }
+      if (e.key === '/' && !typing) { e.preventDefault(); searchRef.current?.focus(); return }
+      if (e.key === 'n' && !typing && !e.metaKey && !e.ctrlKey) { setAddOpen(true); return }
+      if (typing) return
+      if (e.key === 'f' && selected.size > 0) { bulkAction(Array.from(selected), 'favorite').then(load); return }
+      if (e.key === 'a' && selected.size > 0) { bulkAction(Array.from(selected), 'archive').then(load); return }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size > 0) { setConfirmDelete(true); return }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, load])
 
   function handleSelect(id: string, checked: boolean) {
     setSelected(s => {
@@ -83,8 +114,16 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
     setConfirmDelete(false)
   }
 
+  async function handleBulkMove(targetCollectionId: string) {
+    const ids = Array.from(selected)
+    const r = await bulkMove(ids, targetCollectionId)
+    if (r.error) toast.error(r.error)
+    else { toast.success(`Moved ${ids.length} bookmarks`); setSelected(new Set()); load() }
+  }
+
   const selectedIds = Array.from(selected)
   const hasSelection = selectedIds.length > 0
+  const flatCollections = flattenCollections(collections)
 
   return (
     <div className="flex h-full flex-col">
@@ -93,6 +132,7 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
         title={title}
         count={bookmarks.length}
         search={search}
+        searchRef={searchRef}
         onSearch={setSearch}
         view={view}
         onView={setView}
@@ -100,13 +140,32 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
         onSort={setSort}
         onAddBookmark={() => setAddOpen(true)}
         onUploadFile={() => fileInputRef.current?.click()}
+        onFilterToggle={() => setFilterOpen(v => !v)}
+        filtersActive={hasActiveFilters(filters)}
+        onShortcuts={() => setShortcutsOpen(true)}
       />
 
+      {filterOpen && (
+        <FilterPanel filters={filters} onChange={f => { setFilters(f) }} />
+      )}
+
       {hasSelection && (
-        <div className="flex items-center gap-2 border-b bg-accent/20 px-4 py-2 text-sm">
+        <div className="flex items-center gap-2 border-b bg-accent/20 px-4 py-2 text-sm flex-wrap">
           <span className="text-muted-foreground">{selectedIds.length} selected</span>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={async () => { await bulkAction(selectedIds, 'archive'); setSelected(new Set()); load() }}>Archive</Button>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={async () => { await bulkAction(selectedIds, 'favorite'); setSelected(new Set()); load() }}>Favorite</Button>
+          {flatCollections.length > 0 && (
+            <Select onValueChange={handleBulkMove}>
+              <SelectTrigger className="h-7 w-40 text-xs">
+                <SelectValue placeholder="Move to…" />
+              </SelectTrigger>
+              <SelectContent>
+                {flatCollections.map(c => (
+                  <SelectItem key={c.id} value={c.id} className="text-xs">{c.indent}{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Button size="sm" variant="outline" className="h-7 text-xs text-destructive" onClick={() => setConfirmDelete(true)}>
             {filter === 'trash' ? 'Delete permanently' : 'Move to trash'}
           </Button>
@@ -129,6 +188,7 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
       </div>
 
       <AddBookmarkDialog open={addOpen} onClose={() => { setAddOpen(false); load() }} collections={collections} />
+      <KeyboardShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
@@ -146,4 +206,13 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
       </AlertDialog>
     </div>
   )
+}
+
+function flattenCollections(cols: CollectionWithChildren[], depth = 0): { id: string; name: string; indent: string }[] {
+  const result: { id: string; name: string; indent: string }[] = []
+  for (const c of cols) {
+    result.push({ id: c.id, name: c.name, indent: depth > 0 ? ' '.repeat(depth * 3) : '' })
+    if (c.children?.length) result.push(...flattenCollections(c.children, depth + 1))
+  }
+  return result
 }

@@ -42,3 +42,15 @@ export interface ActionResult<T = void> {
   data?: T
   error?: string
 }
+
+export type DateRange = 'today' | 'this_week' | 'this_month' | 'older' | ''
+
+export interface FilterState {
+  types: BookmarkType[]
+  dateRange: DateRange
+  domain: string
+}
+
+export const EMPTY_FILTER: FilterState = { types: [], dateRange: '', domain: '' }
+export const hasActiveFilters = (f: FilterState) =>
+  f.types.length > 0 || !!f.dateRange || !!f.domain

@@ -202,6 +202,47 @@ export async function moveBookmark(id: string, collectionId: string | null): Pro
   return {}
 }
 
+export async function bulkMove(ids: string[], collectionId: string | null): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+  const { error } = await supabase.from('bookmarks').update({ collection_id: collectionId }).in('id', ids).eq('user_id', user.id)
+  if (error) return { error: error.message }
+  revalidatePath('/app', 'layout')
+  return {}
+}
+
+export async function batchAddTags(bookmarkIds: string[], tagNames: string[]): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+  const names = tagNames.map(n => n.trim().toLowerCase()).filter(Boolean)
+  if (!names.length) return {}
+  const { data: existing } = await supabase.from('tags').select('id, name').eq('user_id', user.id).in('name', names)
+  const map: Record<string, string> = {}
+  existing?.forEach(t => { map[t.name] = t.id })
+  const missing = names.filter(n => !map[n])
+  if (missing.length) {
+    const { data: created } = await supabase.from('tags').insert(missing.map(name => ({ name, user_id: user.id }))).select('id, name')
+    created?.forEach(t => { map[t.name] = t.id })
+  }
+  const tagIds = names.map(n => map[n]).filter(Boolean)
+  const records = bookmarkIds.flatMap(bmId => tagIds.map(tagId => ({ bookmark_id: bmId, tag_id: tagId })))
+  if (records.length) await supabase.from('bookmark_tags').upsert(records, { ignoreDuplicates: true })
+  revalidatePath('/app', 'layout')
+  return {}
+}
+
+export async function batchRemoveTags(bookmarkIds: string[], tagIds: string[]): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+  const { error } = await supabase.from('bookmark_tags').delete().in('bookmark_id', bookmarkIds).in('tag_id', tagIds)
+  if (error) return { error: error.message }
+  revalidatePath('/app', 'layout')
+  return {}
+}
+
 export async function getBookmarks(opts: {
   filter?: 'all' | 'favorites' | 'archive' | 'trash' | 'collection'
   collectionId?: string
@@ -210,12 +251,15 @@ export async function getBookmarks(opts: {
   sort?: SortMode
   page?: number
   pageSize?: number
+  types?: string[]
+  domain?: string
+  dateRange?: 'today' | 'this_week' | 'this_month' | 'older'
 }): Promise<ActionResult<BookmarkWithTags[]>> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
-  const { filter = 'all', collectionId, tagIds, search, sort = 'newest', page = 0, pageSize = 50 } = opts
+  const { filter = 'all', collectionId, tagIds, search, sort = 'newest', page = 0, pageSize = 50, types, domain, dateRange } = opts
 
   let query = supabase
     .from('bookmarks')
@@ -242,6 +286,15 @@ export async function getBookmarks(opts: {
 
   if (search) {
     query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,url.ilike.%${search}%,domain.ilike.%${search}%,note.ilike.%${search}%`)
+  }
+  if (types?.length) query = query.in('type', types)
+  if (domain) query = query.ilike('domain', `%${domain}%`)
+  if (dateRange) {
+    const now = new Date()
+    if (dateRange === 'today') query = query.gte('created_at', new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString())
+    else if (dateRange === 'this_week') query = query.gte('created_at', new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString())
+    else if (dateRange === 'this_month') query = query.gte('created_at', new Date(now.getFullYear(), now.getMonth(), 1).toISOString())
+    else if (dateRange === 'older') query = query.lt('created_at', new Date(now.getFullYear(), now.getMonth(), 1).toISOString())
   }
 
   switch (sort) {
