@@ -79,16 +79,7 @@ export function BookmarkCard({ bookmark, selected, onSelect, onOpen, compact }: 
       )}
       onClick={() => onOpen?.(bookmark)}
     >
-      {onSelect && (
-        <Checkbox
-          className="absolute left-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 data-[state=checked]:opacity-100"
-          checked={selected}
-          onCheckedChange={c => onSelect(bookmark.id, !!c)}
-          onClick={e => e.stopPropagation()}
-        />
-      )}
-
-      {bookmark.image_url && !compact && (
+      {bookmark.image_url && (
         <div className="relative h-36 w-full overflow-hidden rounded-md bg-muted">
           <Image
             src={bookmark.image_url}
@@ -101,6 +92,14 @@ export function BookmarkCard({ bookmark, selected, onSelect, onOpen, compact }: 
       )}
 
       <div className="flex items-start gap-2">
+        {onSelect && (
+          <Checkbox
+            checked={selected}
+            onCheckedChange={c => onSelect(bookmark.id, !!c)}
+            onClick={e => e.stopPropagation()}
+            className="mt-0.5 shrink-0"
+          />
+        )}
         <Favicon url={bookmark.favicon_url} domain={bookmark.domain} size={16} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium leading-tight">{bookmark.title}</p>

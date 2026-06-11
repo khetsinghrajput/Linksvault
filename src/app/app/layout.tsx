@@ -13,13 +13,19 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { getCollections } from '@/app/actions/collections'
 import { signout } from '@/app/actions/auth'
 import { createClient } from '@/lib/supabase/client'
+import { AddCollectionDialog } from '@/components/app/add-collection-dialog'
 import type { CollectionWithChildren } from '@/types'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collections, setCollections] = useState<CollectionWithChildren[]>([])
   const [addOpen, setAddOpen] = useState(false)
+  const [addCollectionOpen, setAddCollectionOpen] = useState(false)
   const [user, setUser] = useState<{ email?: string; full_name?: string } | null>(null)
   const router = useRouter()
+
+  function reloadCollections() {
+    getCollections().then(r => { if (r.data) setCollections(r.data) })
+  }
 
   useEffect(() => {
     const supabase = createClient()
@@ -29,7 +35,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         full_name: data.user?.user_metadata?.full_name ?? '',
       })
     })
-    getCollections().then(r => { if (r.data) setCollections(r.data) })
+    reloadCollections()
   }, [])
 
   const initials = user?.full_name
@@ -75,13 +81,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         <div className="flex flex-1 overflow-hidden">
-          <Sidebar collections={collections} onAddCollection={() => {}} />
+          <Sidebar collections={collections} onAddCollection={() => setAddCollectionOpen(true)} />
           <main className="flex flex-1 flex-col overflow-hidden">
             {children}
           </main>
         </div>
 
         <AddBookmarkDialog open={addOpen} onClose={() => setAddOpen(false)} collections={collections} />
+        <AddCollectionDialog open={addCollectionOpen} onClose={() => { setAddCollectionOpen(false); reloadCollections() }} collections={collections} />
         <CommandMenu onAddBookmark={() => setAddOpen(true)} />
       </div>
     </TooltipProvider>
