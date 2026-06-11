@@ -275,6 +275,108 @@ export async function getBookmarks(opts: {
   return { data: bookmarks }
 }
 
+export async function importBookmarksBatch(
+  items: Array<{ url: string; title: string; description?: string; image_url?: string; tags?: string[] }>
+): Promise<{ imported: number; errors: string[] }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { imported: 0, errors: ['Not signed in — please log out and back in'] }
+
+  const errors: string[] = []
+
+  const validRows: Array<{
+    insert: { url: string; title: string; description: string | null; image_url: string | null; type: string; user_id: string; domain: string | null; normalized_url: string | null }
+    tags: string[]
+  }> = []
+
+  for (const item of items) {
+    if (!item.url?.startsWith('http')) { errors.push(`Bad URL: ${item.url}`); continue }
+    const title = (item.title?.trim() || getDomain(item.url) || 'Untitled').slice(0, 500)
+    validRows.push({
+      insert: {
+        url: item.url,
+        title,
+        description: item.description?.slice(0, 2000) ?? null,
+        image_url: item.image_url ?? null,
+        type: 'link',
+        user_id: user.id,
+        domain: getDomain(item.url),
+        normalized_url: normalizeUrl(item.url),
+      },
+      tags: item.tags ?? [],
+    })
+  }
+
+  if (validRows.length === 0) return { imported: 0, errors }
+
+  // Build tag map for the whole batch in 2 queries
+  const allTagNames = [...new Set(validRows.flatMap(r => r.tags).map(t => t.toLowerCase().trim()).filter(Boolean))]
+  const tagMap: Record<string, string> = {}
+
+  if (allTagNames.length > 0) {
+    const { data: existing } = await supabase.from('tags').select('id, name').eq('user_id', user.id).in('name', allTagNames)
+    existing?.forEach(t => { tagMap[t.name] = t.id })
+    const missing = allTagNames.filter(n => !tagMap[n])
+    if (missing.length > 0) {
+      const { data: created } = await supabase.from('tags').insert(missing.map(name => ({ name, user_id: user.id }))).select('id, name')
+      created?.forEach(t => { tagMap[t.name] = t.id })
+    }
+  }
+
+  // Bulk insert all bookmarks in one query
+  const { data: inserted, error: insertError } = await supabase
+    .from('bookmarks')
+    .insert(validRows.map(r => r.insert))
+    .select('id')
+
+  if (insertError) {
+    return { imported: 0, errors: [`Insert failed: ${insertError.message}`] }
+  }
+
+  // Bulk insert bookmark_tags in one query
+  const btRecords = validRows.flatMap((row, i) => {
+    const bmId = inserted?.[i]?.id
+    if (!bmId) return []
+    return row.tags.map(t => tagMap[t.toLowerCase().trim()]).filter(Boolean).map(tagId => ({ bookmark_id: bmId, tag_id: tagId }))
+  })
+  if (btRecords.length > 0) {
+    await supabase.from('bookmark_tags').insert(btRecords)
+  }
+
+  revalidatePath('/app', 'layout')
+  return { imported: inserted?.length ?? 0, errors }
+}
+
+export async function uploadFileBookmark(formData: FormData): Promise<ActionResult<string>> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const file = formData.get('file') as File | null
+  if (!file || !file.name) return { error: 'No file provided' }
+  if (file.size > 50 * 1024 * 1024) return { error: 'File must be under 50 MB' }
+
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+  const type = ext === 'pdf' ? 'pdf' : ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext) ? 'image' : 'file'
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const path = `${user.id}/${Date.now()}_${safeName}`
+
+  const { error: uploadError } = await supabase.storage.from('uploads').upload(path, file)
+  if (uploadError) return { error: `Upload failed: ${uploadError.message}` }
+
+  const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(path)
+
+  const { data: bookmark, error } = await supabase
+    .from('bookmarks')
+    .insert({ url: publicUrl, title: file.name, type, user_id: user.id, storage_path: path, mime_type: file.type, file_size: file.size, domain: null, normalized_url: null })
+    .select('id')
+    .single()
+
+  if (error) return { error: error.message }
+  revalidatePath('/app', 'layout')
+  return { data: bookmark.id }
+}
+
 export async function bulkAction(ids: string[], action: 'delete' | 'restore' | 'archive' | 'unarchive' | 'favorite' | 'unfavorite' | 'permanent-delete'): Promise<ActionResult> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
