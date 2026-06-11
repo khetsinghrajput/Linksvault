@@ -61,7 +61,7 @@ export default function ImportPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">CSV Import</CardTitle>
-              <CardDescription>Columns: url, title, description, tags, collection, note</CardDescription>
+              <CardDescription>Supports Raindrop.io exports and generic CSVs (url, title, description, tags, note)</CardDescription>
             </CardHeader>
             <CardContent>
               <label className="flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed p-6 hover:border-primary transition-colors">
@@ -124,24 +124,65 @@ async function importHtml(html: string): Promise<ImportResult> {
   return { imported, failed, errors }
 }
 
+// RFC 4180-compliant CSV parser that handles quoted fields with embedded commas/newlines
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
+  let i = 0
+
+  while (i < text.length) {
+    const ch = text[i]
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i += 2 }
+      else if (ch === '"') { inQuotes = false; i++ }
+      else { field += ch; i++ }
+    } else {
+      if (ch === '"') { inQuotes = true; i++ }
+      else if (ch === ',') { row.push(field.trim()); field = ''; i++ }
+      else if (ch === '\r') { i++ }
+      else if (ch === '\n') { row.push(field.trim()); rows.push(row); row = []; field = ''; i++ }
+      else { field += ch; i++ }
+    }
+  }
+  if (field.trim() || row.length > 0) { row.push(field.trim()); rows.push(row) }
+  return rows
+}
+
 async function importCsv(csv: string): Promise<ImportResult> {
-  const lines = csv.trim().split('\n')
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+  const rows = parseCSV(csv)
+  if (rows.length < 2) return { imported: 0, failed: 0, errors: ['Empty or unreadable CSV'] }
+
+  const headers = rows[0].map(h => h.toLowerCase().trim())
+  // Raindrop.io exports use 'excerpt' for description and 'cover' for image
+  const isRaindrop = headers.includes('excerpt')
   let imported = 0; let failed = 0; const errors: string[] = []
 
-  for (const line of lines.slice(1)) {
-    const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+  for (const cols of rows.slice(1)) {
+    if (cols.every(c => !c)) continue // skip blank rows
     const row: Record<string, string> = {}
-    headers.forEach((h, i) => row[h] = cols[i] ?? '')
-    const url = row.url
+    headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
+
+    const url = row.url?.trim()
     if (!url?.startsWith('http')) { failed++; continue }
-    const tags = row.tags ? row.tags.split('|').map(t => t.trim()) : []
+
+    const title = (row.title?.trim() || getDomain(url)).slice(0, 500)
+    const description = (isRaindrop ? row.excerpt?.trim() : row.description?.trim()) || undefined
+    const note = row.note?.trim().slice(0, 5000) || undefined
+    const image_url = isRaindrop ? (row.cover?.trim() || undefined) : undefined
+
+    // Support comma-separated (Raindrop) and pipe-separated (generic) tags
+    const rawTags = row.tags?.trim() ?? ''
+    const tags = rawTags ? rawTags.split(/[,|]/).map(t => t.trim()).filter(Boolean) : []
+
     try {
       const r = await createBookmark({
         url,
-        title: row.title || getDomain(url),
-        description: row.description || undefined,
-        note: row.note || undefined,
+        title,
+        description: description?.slice(0, 2000),
+        note,
+        image_url,
         type: 'link',
         tags,
       })

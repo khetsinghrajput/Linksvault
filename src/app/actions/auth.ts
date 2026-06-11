@@ -61,7 +61,7 @@ export async function signup(_state: unknown, formData: FormData) {
     return { error: error.message }
   }
 
-  redirect('/app/all')
+  return { success: true as const, email: parsed.data.email }
 }
 
 export async function resetPassword(_state: unknown, formData: FormData) {

@@ -2,7 +2,7 @@
 
 import { useActionState } from 'react'
 import Link from 'next/link'
-import { Bookmark } from 'lucide-react'
+import { Bookmark, MailCheck } from 'lucide-react'
 import { signup } from '@/app/actions/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,14 +12,49 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 export default function SignupPage() {
   const [state, action, pending] = useActionState(signup, undefined)
 
+  const logo = (
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-2">
+        <Bookmark className="h-8 w-8 text-primary" />
+        <span className="text-2xl font-bold">LinkVault</span>
+      </div>
+    </div>
+  )
+
+  if (state && 'success' in state && state.success) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-6">
+          {logo}
+          <Card>
+            <CardHeader className="items-center text-center">
+              <MailCheck className="h-10 w-10 text-primary mb-1" />
+              <CardTitle>Check your inbox</CardTitle>
+              <CardDescription>
+                We sent a confirmation link to{' '}
+                <span className="font-medium text-foreground">{state.email}</span>.
+                Click it to activate your account.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center text-sm text-muted-foreground">
+              Once confirmed, you can sign in below.
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3">
+              <Button asChild className="w-full">
+                <Link href="/auth/login">Go to sign in</Link>
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-2">
-          <div className="flex items-center gap-2">
-            <Bookmark className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold">LinkVault</span>
-          </div>
+          {logo}
           <p className="text-sm text-muted-foreground">Create your vault</p>
         </div>
 
@@ -30,7 +65,7 @@ export default function SignupPage() {
           </CardHeader>
           <form action={action}>
             <CardContent className="space-y-4">
-              {state?.error && (
+              {state && 'error' in state && state.error && (
                 <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
                   {state.error}
                 </p>
