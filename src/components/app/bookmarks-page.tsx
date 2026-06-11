@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { Toolbar } from '@/components/app/toolbar'
 import { BookmarkViews } from '@/components/app/bookmark-views'
 import { BookmarkDetailDrawer } from '@/components/app/bookmark-detail-drawer'
 import { AddBookmarkDialog } from '@/components/app/add-bookmark-dialog'
-import { getBookmarks, bulkAction } from '@/app/actions/bookmarks'
+import { getBookmarks, bulkAction, uploadFileBookmark } from '@/app/actions/bookmarks'
 import { getCollections } from '@/app/actions/collections'
 import { Button } from '@/components/ui/button'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
@@ -29,6 +29,7 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
   const [openBookmark, setOpenBookmark] = useState<BookmarkWithTags | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -58,6 +59,17 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
     })
   }
 
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    const fd = new FormData()
+    fd.append('file', file)
+    const r = await uploadFileBookmark(fd)
+    if (r.error) toast.error(r.error)
+    else { toast.success(`"${file.name}" saved as a bookmark`); load() }
+  }
+
   async function handleBulkDelete() {
     const ids = Array.from(selected)
     const action = filter === 'trash' ? 'permanent-delete' : 'delete'
@@ -76,6 +88,7 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
 
   return (
     <div className="flex h-full flex-col">
+      <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
       <Toolbar
         title={title}
         count={bookmarks.length}
@@ -86,6 +99,7 @@ export function BookmarksPage({ title, filter = 'all', collectionId }: Bookmarks
         sort={sort}
         onSort={setSort}
         onAddBookmark={() => setAddOpen(true)}
+        onUploadFile={() => fileInputRef.current?.click()}
       />
 
       {hasSelection && (

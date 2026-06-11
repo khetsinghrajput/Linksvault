@@ -1,11 +1,9 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { Upload, FileText, AlertCircle, CheckCircle, File, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { importBookmarksBatch, uploadFileBookmark } from '@/app/actions/bookmarks'
+import { useState } from 'react'
+import { Upload, FileText, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
+import { importBookmarksBatch } from '@/app/actions/bookmarks'
 import { getDomain } from '@/lib/url-utils'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface ImportResult { imported: number; failed: number; errors: string[] }
@@ -16,8 +14,6 @@ export default function ImportPage() {
   const [isImporting, setIsImporting] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
-  const [uploadingFile, setUploadingFile] = useState(false)
-  const fileUploadRef = useRef<HTMLInputElement>(null)
 
   function handleHtmlFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -66,22 +62,6 @@ export default function ImportPage() {
     setProgress(null)
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-    setUploadingFile(true)
-    const fd = new FormData()
-    fd.append('file', file)
-    const r = await uploadFileBookmark(fd)
-    setUploadingFile(false)
-    if (r.error) {
-      toast.error(r.error)
-    } else {
-      toast.success(`"${file.name}" saved as a bookmark`)
-    }
-  }
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex h-14 items-center border-b px-4">
@@ -117,21 +97,6 @@ export default function ImportPage() {
                 <FileText className="h-5 w-5 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">Click to choose a .csv file</span>
                 <input type="file" accept=".csv" className="hidden" onChange={handleCsvFile} disabled={isImporting} />
-              </label>
-            </CardContent>
-          </Card>
-
-          {/* File upload */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Upload a File</CardTitle>
-              <CardDescription>Save a PDF, image, or document as a bookmark (max 50 MB). Requires a Supabase storage bucket named "uploads".</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <label className={`flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed p-6 hover:border-primary transition-colors ${uploadingFile ? 'pointer-events-none opacity-50' : ''}`}>
-                {uploadingFile ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : <File className="h-5 w-5 text-muted-foreground" />}
-                <span className="text-sm text-muted-foreground">{uploadingFile ? 'Uploading…' : 'Click to choose a file'}</span>
-                <input ref={fileUploadRef} type="file" className="hidden" onChange={handleFileUpload} disabled={uploadingFile} />
               </label>
             </CardContent>
           </Card>

@@ -1,6 +1,6 @@
 'use client'
 
-import { Search, Plus, LayoutList, LayoutGrid, Columns, AlignJustify, ArrowUpDown } from 'lucide-react'
+import { Search, Plus, LayoutList, LayoutGrid, Columns, AlignJustify, ArrowUpDown, Paperclip } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -17,6 +17,7 @@ interface ToolbarProps {
   sort: SortMode
   onSort: (s: SortMode) => void
   onAddBookmark: () => void
+  onUploadFile?: () => void
 }
 
 const viewIcons: Record<ViewMode, { icon: React.ComponentType<{ className?: string }>; label: string }> = {
@@ -26,7 +27,7 @@ const viewIcons: Record<ViewMode, { icon: React.ComponentType<{ className?: stri
   masonry: { icon: Columns, label: 'Masonry' },
 }
 
-export function Toolbar({ title, count, search, onSearch, view, onView, sort, onSort, onAddBookmark }: ToolbarProps) {
+export function Toolbar({ title, count, search, onSearch, view, onView, sort, onSort, onAddBookmark, onUploadFile }: ToolbarProps) {
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
       <div className="flex-1">
@@ -74,6 +75,17 @@ export function Toolbar({ title, count, search, onSearch, view, onView, sort, on
           <SelectItem value="domain">Domain</SelectItem>
         </SelectContent>
       </Select>
+
+      {onUploadFile && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={onUploadFile}>
+              <Paperclip className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Upload file</TooltipContent>
+        </Tooltip>
+      )}
 
       <Button size="sm" className="h-8 gap-1.5" onClick={onAddBookmark}>
         <Plus className="h-4 w-4" />
