@@ -59,7 +59,7 @@ export async function signup(_state: unknown, formData: FormData) {
 
   if (error) {
     const msg = error.message.toLowerCase().includes('rate limit')
-      ? 'Too many signup attempts for this email. Please wait an hour before trying again, or use a different email address.'
+      ? 'Supabase email limit reached for this project. Disable email confirmation in your Supabase Auth settings to continue testing.'
       : error.message
     return { error: msg }
   }
